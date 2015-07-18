@@ -1,13 +1,11 @@
 <?php
 class SmiteAPI{
 	private $configData;
-	private $session;
 	private $IP;
 
 	public function __construct($config){
 		$this->configData = new stdClass();
 		$this->configData = $config;
-		$this->session = $this->createSession();
 		$this->IP = $_SERVER['REMOTE_ADDR'];
 	}
 
@@ -20,9 +18,9 @@ class SmiteAPI{
 
 		$url = str_replace("DEV_ID", $this->configData->DEV_ID, $url);
 		$url = str_replace("DEV_SIG", $this->generateSignature($request), $url);
-		$url = str_replace("DEV_SES", $this->session, $url);
+		$url = str_replace("DEV_SES", $this->createSession(), $url);
 		$url = str_replace("TIMESTAMP", $this->getTimestamp(), $url);
-
+		echo $this->configData->SITE_URL.$request.$format.$url."<br />";
 		$ch = curl_init();
 		curl_setopt($ch, CURLOPT_URL, $this->configData->SITE_URL.$request.$format.$url);
 		curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
@@ -52,20 +50,22 @@ class SmiteAPI{
 	}
 
 	private function createSession(){
-		if((!isset($_SESSION['SMITE_SESSION_TIMEOUT_'.$this->IP])) || ($_SESSION['SMITE_SESSION_TIMEOUT_'.$this->IP] <= time())){
+		//echo $_SESSION['SMITE_SESSION_TIMEOUT_'.$this->IP].":".time()."<br />";
+		//echo $_SESSION['SMITE_SESSION_'.$this->IP]."<br />";
+		if(!isset($_SESSION['SMITE_SESSION_TIMEOUT_'.$this->IP])){
 			$_SESSION['SMITE_SESSION_TIMEOUT_'.$this->IP] = time()+60*15;
-			unset($_SESSION['SMITE_SESSION_'.$this->IP]);
-		}
-
-
-		if(empty($_SESSION['SMITE_SESSION_'.$this->IP])){
 			$resp = $this->makeRequest("createsession", "/DEV_ID/DEV_SIG/TIMESTAMP", "JSON", true);
 			$_SESSION['SMITE_SESSION_'.$this->IP] = $resp->session_id;
-			$this->session = $resp->session_id;
-			return $resp->session_id;
+			return $resp->session;
 		}else{
-			return $_SESSION['SMITE_SESSION_'.$this->IP];
+			if(time() >= $_SESSION['SMITE_SESSION_TIMEOUT_'.$this->IP]){
+				$_SESSION['SMITE_SESSION_TIMEOUT_'.$this->IP] = time()+60*15;
+				$resp = $this->makeRequest("createsession", "/DEV_ID/DEV_SIG/TIMESTAMP", "JSON", true);
+				$_SESSION['SMITE_SESSION_'.$this->IP] = $resp->session_id;
+				return $resp->session;
+			}else{
+				return $_SESSION['SMITE_SESSION_'.$this->IP];
+			}
 		}
 	}
 }
-
