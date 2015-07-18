@@ -20,7 +20,7 @@ class SmiteAPI{
 		$url = str_replace("DEV_SIG", $this->generateSignature($request), $url);
 		$url = str_replace("DEV_SES", $this->createSession(), $url);
 		$url = str_replace("TIMESTAMP", $this->getTimestamp(), $url);
-		echo $this->configData->SITE_URL.$request.$format.$url."<br />";
+		
 		$ch = curl_init();
 		curl_setopt($ch, CURLOPT_URL, $this->configData->SITE_URL.$request.$format.$url);
 		curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
