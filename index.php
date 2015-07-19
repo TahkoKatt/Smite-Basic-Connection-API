@@ -1,17 +1,20 @@
 <?php
 error_reporting(E_ALL);
+session_start();
 include_once("config.php");
 include_once("API.php");
-$API = new SmiteApi($config);
+$API = new SmiteApi($smiteConfig);
 
 $data = "";
 $friendCount = 0;
-$username = $API->secureString($_POST['username']);
+$username = isset($_POST['username']) ? $API->secureString($_POST['username']) : "";
 if(isset($_POST['submit'])){
-	$resp = $API->makeRequest("getfriends", "/DEV_ID/DEV_SIG/DEV_SES/TIMESTAMP/".$username, "JSON");
-	foreach($resp as $row){
-		$data .= $row->name."<br />";
-		$friendCount += 1;
+	if(!$username == ""){
+		$resp = $API->makeRequest("getfriends", "/DEV_ID/DEV_SIG/DEV_SES/TIMESTAMP/".$username, "JSON");
+		foreach($resp as $row){
+			$data .= $row->name."<br />";
+			$friendCount += 1;
+		}
 	}
 }
 ?>
@@ -27,9 +30,11 @@ if(isset($_POST['submit'])){
 		</form>
 	</center>
 <?php
-if($friendCount == 1){
-	echo $username." has ".$friendCount." friend!<br />".$data;
-}else{
-	echo $username." has ".$friendCount." friends!<br />".$data;
+if(!$username == ""){
+	if($friendCount == 1){
+		echo $username." has ".$friendCount." friend!<br />".$data;
+	}else{
+		echo $username." has ".$friendCount." friends!<br />".$data;
+	}
 }
 ?>
