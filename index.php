@@ -1,16 +1,13 @@
 <?php
 error_reporting(E_ALL);
-session_start();
-include_once("config.php");
-include_once("API.php");
-$API = new SmiteApi($smiteConfig);
+require_once("autoloader.php");
 
 $data = "";
 $friendCount = 0;
 $username = isset($_POST['username']) ? $API->secureString($_POST['username']) : "";
 if(isset($_POST['submit'])){
 	if(!$username == ""){
-		$resp = $API->makeRequest("getfriends", "/DEV_ID/DEV_SIG/DEV_SES/TIMESTAMP/".$username, "JSON");
+		$resp = $SmiteAPI->makeRequest("getfriends", "/DEV_ID/DEV_SIG/DEV_SES/TIMESTAMP/".$username);
 		foreach($resp as $row){
 			$data .= $row->name."<br />";
 			$friendCount += 1;
