@@ -1,13 +1,14 @@
 <?php
 class SmiteAPI{
 	private $configData;
-	private $dbc;
+	public $dbc;
 	private $projectName = "Smite Connection API";
 
 	public function __construct($config){
 		$this->configData = new stdClass();
 		$this->configData = $config;
 		$this->dbc = $this->createDatabaseConnection();
+		//$this->createSession();
 	}
 
 	private function getReturnMessages($request){
@@ -50,6 +51,10 @@ class SmiteAPI{
 			}
 		}
 
+		if(empty($resp)){
+			return $this->makeSessionRequest();
+		}
+		
 		return $resp;
 	}
 
@@ -61,7 +66,7 @@ class SmiteAPI{
 
 		$url = str_replace("DEV_ID", $this->configData->DEV_ID, $url);
 		$url = str_replace("DEV_SIG", $this->generateSignature($request), $url);
-		$url = str_replace("DEV_SES", $this->getSessionID(), $url);
+		$url = str_replace("DEV_SES", $this->getSession(), $url);
 		$url = str_replace("TIMESTAMP", $this->getTimestamp(), $url);
 
 		//echo $this->configData->SITE_URL.$request."JSON".$url;
@@ -102,109 +107,83 @@ class SmiteAPI{
 		return md5($this->configData->DEV_ID.$request.$this->configData->API_KEY.$this->getTimestamp());
 	}
 
-	public function getSessionID(){
-		$q = $this->dbc->prepare("SELECT * FROM sessions WHERE expired = ?");
-		$q->bindValue(1, false);
-		$q->execute();
-
-		$sessionID = NULL;
-		$timestamp = NULL;
-		if($q->rowCount() == 1){
-			foreach($q->fetchAll() as $row){
-				$sessionID = $row['session_id'];
-				$timestamp = $row['expiration_timestamp'];
-			}
-
-			//Check if we need a new session made.
-			if(time() >= $timestamp){
-				//Generate new session as this one has expired
-				$q = $this->dbc->prepare("UPDATE sessions SET expired = ? WHERE session_id = ?");
-				$q->bindValue(1, 1);
-				$q->bindValue(2, $sessionID);
-				if($q->execute()){
-					return $this->createSession();
-				}
-			}else{
-				//Don't need a new session made so return the current one.
-				return $sessionID;
-			}
-		}else{
-			//No active session at the moment, generate one.
-			return $this->createSession();
-		}
-		return false;
-	}
-
 	private function isActiveSessionAvailable(){
 		$q = $this->dbc->prepare("SELECT * FROM sessions WHERE expired = ?");
-		$q->bindValue(1, false);
+		$q->bindValue(1, 0);
 		$q->execute();
 
-		$sessionID = NULL;
+		$session_id = NULL;
 		$timestamp = NULL;
-		//Session available, but has it expired?
-		if($q->rowCount() == 1){
-			foreach($q->fetchAll() as $row){
-				$timestamp = $row['expiration_timestamp'];
-			}
+		foreach($q->fetchAll() as $row){
+			$session_id = $row["session_id"];
+			$timestamp = $row["timestamp"];
+		}
 
-			//Check if the session has expired.
+		if($q->rowCount() == 1){
 			if(time() >= $timestamp){
-				return false;
+				//Session has expired
+				return ["available" => false, "session_id" => $session_id];
 			}else{
-				return true;
+				//Session is still active
+				return ["available" => true, "session_id" => $session_id];
+			}
+		}else{
+			return ["available" => false, "session_id" => NULL];
+		}
+	}
+
+	private function makeSessionInternally($resp){
+		if(!empty($resp)){
+			$timestamp = time() + $this->configData->SESSION_DURATION;
+			$q = $this->dbc->prepare("SELECT * FROM sessions");
+			$q->execute();
+			if($q->rowCount() == 1){
+				if($q->fetch()["expired"]){
+					$expiration = $q->fetch()["timestamp"];
+					if(time() >= $expiration){
+						//Session has expired, generate new one.
+						$q = $this->dbc->prepare("UPDATE sessions SET session_id = ?, timestamp = ?, expired = ?");
+						$q->bindValue(1, $resp->session_id);
+						$q->bindValue(2, $timestamp);
+						$q->bindValue(3, 0);
+						if($q->execute()){
+							return $resp->session_id;
+						}
+					}else{
+						//Session is active, return it.
+						return $q->fetch()["session_id"];
+					}
+				}else{
+					//Session has expired, generate new session.
+					$q = $this->dbc->prepare("UPDATE sessions SET session_id = ?, timestamp = ?, expired = ?");
+					$q->bindValue(1, $resp->session_id);
+					$q->bindValue(2, $timestamp);
+					$q->bindValue(3, 0);
+					if($q->execute()){
+						return $resp->session_id;
+					}
+				}
+			}else{
+				$q = $this->dbc->prepare("INSERT INTO sessions SET session_id = ? AND timestamp = ? AND expired = ?");
+				$q->bindValue(1, $resp->session_id);
+				$q->bindValue(2, $timestamp);
+				$q->bindValue(3, 0);
+				if($q->execute()){
+					return $resp->session_id;
+				}
 			}
 		}else{
 			return false;
 		}
 	}
 
-	private function makeSessionInternally(){
-		$resp = $this->makeSessionRequest();
-		//echo print_r($resp);
-		//die();
-		$q = $this->dbc->prepare("INSERT INTO sessions SET session_id = ?, expiration_timestamp = ?, expired = ?");
-		$q->bindValue(1, $resp->session_id);
-		$q->bindValue(2, time()+$this->configData->SESSION_DURATION);
-		$q->bindValue(3, 0);
-		if($q->execute()){
-			return $resp->session_id;
+	private function getSession(){
+		$sessionArr = $this->isActiveSessionAvailable();
+		if($sessionArr["available"]){
+			return $sessionArr["session_id"];
 		}else{
-			trigger_error($this->projectName.": Couldn't create a new session.");
-		}
-	}
-
-	private function createSession(){
-		if($this->isActiveSessionAvailable()){
-			$q = $this->dbc->prepare("SELECT * FROM sessions WHERE expired = ?");
-			$q->bindValue(1, false);
-			$q->execute();
-
-			$sessionID = NULL;
-			$timestamp = NULL;
-			foreach($q->fetchAll() as $row){
-				$sessionID = $row['session_id'];
-				$timestamp = $row['expiration_timestamp'];
-			}
-
-			//Check if we need a new session made.
-			if(time() >= $timestamp){
-				//Generate new session as this one has expired
-				$q = $this->dbc->prepare("UPDATE sessions SET expired = ? WHERE session_id = ?");
-				$q->bindValue(1, 1);
-				$q->bindValue(2, $sessionID);
-				if($q->execute()){
-					return $this->makeSessionInternally();
-				}else{
-					trigger_error($this->projectName.": Couldn't set old session as expired.");
-				}
-			}else{
-				//Don't need a new session made so return the current one.
-				return $sessionID;
-			}
-		}else{
-			//No active session at the moment, generate one.
-			return $this->makeSessionInternally();
+			$resp = $this->makeSessionRequest();
+			return $this->makeSessionInternally($resp);
 		}
 	}
 
